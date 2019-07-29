@@ -1,0 +1,25 @@
+#!/usr/bin/python3
+#
+#
+
+import sys
+from CommandCompile import CommandCompile
+from CommandDecompile import CommandDecompile
+from MultiCommand import MultiCommand
+
+mc = MultiCommand()
+
+def genparser(parser):
+	parser.add_argument("--verbose", action = "count", default = 0, help = "Increase verbosity. Can be specified multiple times.")
+	parser.add_argument("indir", metavar = "directory", type = str, help = "Input directory that should be compiled to a WAD.")
+	parser.add_argument("outfile", metavar = "wadfile", type = str, help = "Output WAD file that is created after compilation.")
+mc.register("compile", "Compile a WAD file from resources", genparser, action = CommandCompile)
+
+def genparser(parser):
+	parser.add_argument("--no-unpack", action = "store_true", help = "Do not unpack any inner blobs (e.g., convert images to PNG files), extract everything as stored internally.")
+	parser.add_argument("--verbose", action = "count", default = 0, help = "Increase verbosity. Can be specified multiple times.")
+	parser.add_argument("infile", metavar = "wadfile", type = str, help = "Input WAD file that is decompiled.")
+	parser.add_argument("outdir", metavar = "directory", type = str, help = "Input directory in which WAD resources are written.")
+mc.register("decompile", "Decompile a WAD file into its resources", genparser, action = CommandDecompile)
+
+mc.run(sys.argv[1:])
