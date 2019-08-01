@@ -103,7 +103,7 @@ class WADFile():
 			if (len(data) > 0) and (resource_info.get("encoder") is not None):
 				encoder_name = resource_info["encoder"]
 				encoder_class = cls._Encoders[encoder_name]
-				data = encoder_class.encode(data)
+				data = encoder_class.encode(data, metadata = resource_info.get("meta"))
 
 			resource = cls._WADResource(name = resource_info["name"], data = data)
 			wadfile.add_resource(resource)
@@ -133,11 +133,11 @@ class WADFile():
 					template = "font_small/%s" % (template)
 				elif (template in [ "things", "linedefs", "sidedefs", "vertexes", "segs", "ssectors", "nodes", "sectors", "reject", "blockmap" ]) and (lvl_regex.fullmatch(section or "")):
 					template = "level/%s/%s" % (section, template)
-				elif decode and (any(template.startswith(x) for x in [ "stfdead", "stfkill", "stfouch", "stfst", "stftl", "stftr" ])):
+				elif decode and (any(template.startswith(x) for x in [ "stfdead", "stfkill", "stfouch", "stfst", "stftl", "stftr", "stfevl" ])):
 					template = "face/%s" % (template)
 					extension = ".png"
 					encoder = EncoderImage
-				elif decode and (any(template.startswith(x) for x in [ "titlepic" ])):
+				elif decode and (any(template.startswith(x) for x in [ "titlepic", "m_" ])):
 					template = "gfx/%s" % (template)
 					extension = ".png"
 					encoder = EncoderImage
@@ -150,7 +150,8 @@ class WADFile():
 
 				if encoder is not None:
 					resource_item["encoder"] = encoder.name
-					write_data = encoder.decode(resource.data)
+					(write_data, metadata) = encoder.decode(resource.data)
+					resource_item["meta"] = metadata
 				else:
 					write_data = resource.data
 

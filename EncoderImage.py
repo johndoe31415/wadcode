@@ -35,9 +35,9 @@ class Palette():
 
 	def _lookup_closest(self, rgb):
 		best_index = 0
-		best_error = px_diff(rgb, self._colors[best_index])
+		best_error = self.rgb_diff(rgb, self._colors[best_index])
 		for (index, pixel) in enumerate(self._colors[1:], 1):
-			error = px_diff(rgb, pixel)
+			error = self.rgb_diff(rgb, pixel)
 			if error < best_error:
 				best_error = error
 				best_index = index
@@ -48,6 +48,15 @@ class Palette():
 			return self._index_by_color[rgb]
 		else:
 			return self._lookup_closest(rgb)
+
+	def write_gimp_palette(self, filename):
+		with open(filename, "w") as f:
+			print("GIMP Palette", file = f)
+			print("Name: Doom", file = f)
+			print("Columns: 8", file = f)
+			print("#", file = f)
+			for color in self._colors:
+				print("%3d %3d %3d	Unknown" % (color[0], color[1], color[2]), file = f)
 
 	@classmethod
 	def load_from_json(cls, filename):
@@ -88,6 +97,10 @@ class EncoderImage():
 		cls._generate_palette()
 		decoded_data = encoded_data
 		header = cls._HEADER.unpack_head(encoded_data)
+		metadata = {
+			"offsetx":	header.offsetx,
+			"offsety":	header.offsety,
+		}
 
 		start_ptrs = [ ]
 		offset = cls._HEADER.size
@@ -121,30 +134,29 @@ class EncoderImage():
 		png_image.write(iobuf)
 		decoded_data = iobuf.getvalue()
 
-		return decoded_data
+		return (decoded_data, metadata)
 
 
 	@classmethod
-	def encode(cls, decoded_data):
-
+	def encode(cls, decoded_data, metadata = None):
+		if metadata is None:
+			metadata = { }
 		def encode_column(column):
 			def emit(start_offset, values):
 				return cls._SPANHDR.pack({
 					"yoffset":		start_offset,
 					"pixel_cnt":	len(values),
 					"dummy":		0,
-				}) + bytes(values)
+				}) + bytes(values) + b"\x00"
 
 			encoded_column = bytearray()
 			start_offset = None
 			chunk_data = [ ]
-			fixed_offset = 0
-			for (index, value) in enumerate(decoded_data):
+			for (index, value) in enumerate(column):
 				if value == -1:
 					if start_offset is not None:
 						# No more pixels, but we've seen some before
-						fixed_offset = start_offset
-						encoded_column += emit(start_offset - fixed_offset, chunk_data)
+						encoded_column += emit(start_offset, chunk_data)
 						start_offset = None
 						chunk_data = [ ]
 				else:
@@ -157,12 +169,11 @@ class EncoderImage():
 						# Subsequent pixel
 						chunk_data.append(value)
 						if len(chunk_data) >= 128:
-							fixed_offset = start_offset
-							encoded_column += emit(start_offset - fixed_offset, chunk_data)
+							encoded_column += emit(start_offset, chunk_data)
 							start_offset = None
 							chunk_data = [ ]
 			if start_offset is not None:
-				encoded_column += emit(start_offset - fixed_offset, chunk_data)
+				encoded_column += emit(start_offset, chunk_data)
 			return encoded_column + b"\xff"
 
 		cls._generate_palette()
@@ -173,15 +184,25 @@ class EncoderImage():
 		encoded_data += cls._HEADER.pack({
 			"width":	width,
 			"height":	height,
-			"offsetx":	0,
-			"offsety":	0,
+			"offsetx":	metadata.get("offsetx", 0),
+			"offsety":	metadata.get("offsety", 0),
 		})
 
 		column_offset = len(encoded_data) + (width * cls._POINTER.size)
 		column_data = bytearray()
+		pixels = bytes(pixels)
+		if (info["planes"] == 3) and (info["alpha"] == False) and (len(pixels) == 3 * width * height):
+			def rgb_to_rgba(data):
+				for idx in range(0, len(data), 3):
+					yield data[idx + 0]
+					yield data[idx + 1]
+					yield data[idx + 2]
+					yield 0xff
+			pixels = bytes(rgb_to_rgba(pixels))
+		assert(len(pixels) == 4 * width * height)
 
-		column_offset = 0
 		for x in range(width):
+			# First get the color indices of each column
 			col_data = [ ]
 			for y in range(height):
 				pixel_offset = 4 * (x + (y * width))
@@ -192,6 +213,7 @@ class EncoderImage():
 					pixel_index = -1
 				col_data.append(pixel_index)
 
+			# Then encode them
 			encoded_col_data = encode_column(col_data)
 			column_data += encoded_col_data
 			encoded_data += cls._POINTER.pack({
@@ -200,5 +222,4 @@ class EncoderImage():
 			column_offset += len(encoded_col_data)
 
 		encoded_data += column_data
-
 		return encoded_data
